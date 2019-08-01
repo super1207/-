@@ -83,4 +83,6 @@ for url in image_list:
         f.write(str1 + ssinfo + str2)
     print(str1 + ssinfo + str2)
     break
-os.startfile('ShadowsocksR-dotnet2.0.exe') # start ShadowsocksR-dotnet2.0.exe process
+# download: lanzous i59wk8j
+# start ShadowsocksR-dotnet2.0.exe process 
+os.startfile('ShadowsocksR-dotnet2.0.exe') 
