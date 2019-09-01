@@ -1,3 +1,90 @@
+import requests
+import re
+import io
+from PIL import Image
+from pyzbar import pyzbar
 import base64
-sss = 'aW1wb3J0IHJlcXVlc3RzCmltcG9ydCByZQppbXBvcnQgaW8KZnJvbSBQSUwgaW1wb3J0IEltYWdlCmZyb20gcHl6YmFyIGltcG9ydCBweXpiYXIKaW1wb3J0IGJhc2U2NAppbXBvcnQgb3MKCmhlYWRlcnMgPSB7CidVc2VyLUFnZW50JzogJ01vemlsbGEvNS4wIChXaW5kb3dzIE5UIDEwLjA7IFdpbjY0OyB4NjQpIEFwcGxlV2ViS2l0LzUzNy4zNiAoS0hUTUwsIGxpa2UgR2Vja28pIENocm9tZS82NC4wLjMyODIuMTQwIFNhZmFyaS81MzcuMzYgRWRnZS8xOC4xNzc2MycsCn0KCnN0cjEgPSAnJyd7CgkiY29uZmlncyIgOiBbCgkJewoJCQkicmVtYXJrcyIgOiAiIiwKCQkJImlkIiA6ICJDQzVEMThGRTI2NTgxQTYwM0VFQjQwNkM3RDQ1NERDRiIsCicnJwpzdHIyID0gJycnInNlcnZlcl91ZHBfcG9ydCIgOiAwLAoJCQkicHJvdG9jb2wiIDogIm9yaWdpbiIsCgkJCSJwcm90b2NvbHBhcmFtIiA6ICIiLAoJCQkib2JmcyIgOiAicGxhaW4iLAoJCQkib2Jmc3BhcmFtIiA6ICIiLAoJCQkicmVtYXJrc19iYXNlNjQiIDogIiIsCgkJCSJncm91cCIgOiAiIiwKCQkJImVuYWJsZSIgOiB0cnVlLAoJCQkidWRwX292ZXJfdGNwIiA6IGZhbHNlCgkJfQoJXSwKCSJpbmRleCIgOiAwLAoJInJhbmRvbSIgOiBmYWxzZSwKCSJzeXNQcm94eU1vZGUiIDogMiwKCSJzaGFyZU92ZXJMYW4iIDogZmFsc2UsCgkibG9jYWxQb3J0IiA6IDEwODAsCgkibG9jYWxBdXRoUGFzc3dvcmQiIDogIkdCdmY4Vk9jNFFxcXZnTVhLWnZ2IiwKCSJkbnNTZXJ2ZXIiIDogIiIsCgkicmVjb25uZWN0VGltZXMiIDogMiwKCSJyYW5kb21BbGdvcml0aG0iIDogMywKCSJyYW5kb21Jbkdyb3VwIiA6IGZhbHNlLAoJIlRUTCIgOiAwLAoJImNvbm5lY3RUaW1lb3V0IiA6IDUsCgkicHJveHlSdWxlTW9kZSIgOiAyLAoJInByb3h5RW5hYmxlIiA6IGZhbHNlLAoJInBhY0RpcmVjdEdvUHJveHkiIDogZmFsc2UsCgkicHJveHlUeXBlIiA6IDAsCgkicHJveHlIb3N0IiA6ICIiLAoJInByb3h5UG9ydCIgOiAwLAoJInByb3h5QXV0aFVzZXIiIDogIiIsCgkicHJveHlBdXRoUGFzcyIgOiAiIiwKCSJwcm94eVVzZXJBZ2VudCIgOiAiIiwKCSJhdXRoVXNlciIgOiAiIiwKCSJhdXRoUGFzcyIgOiAiIiwKCSJhdXRvQmFuIiA6IGZhbHNlLAoJInNhbWVIb3N0Rm9yU2FtZVRhcmdldCIgOiBmYWxzZSwKCSJrZWVwVmlzaXRUaW1lIiA6IDE4MCwKCSJpc0hpZGVUaXBzIiA6IHRydWUsCgkibm9kZUZlZWRBdXRvVXBkYXRlIiA6IHRydWUsCgkic2VydmVyU3Vic2NyaWJlcyIgOiBbCgoJXSwKCSJ0b2tlbiIgOiB7CgoJfSwKCSJwb3J0TWFwIiA6IHsKCgl9Cn0nJycKciA9IHJlcXVlc3RzLmdldCgiaHR0cHM6Ly9zcy5mcmVlc2hhZG93c29ja3MuYml6IixoZWFkZXJzID0gaGVhZGVycykKcGF0dGVybiA9IHJlLmNvbXBpbGUocidpbWcvcG9ydGZvbGlvL3NzW15yXS4qP1wucG5nJykKaW1hZ2VfbGlzdCA9IHBhdHRlcm4uZmluZGFsbChyLmNvbnRlbnQuZGVjb2RlKCd1dGYtOCcpKQppbWFnZV9saXN0ID0gWydodHRwczovL3NzLmZyZWVzaGFkb3dzb2Nrcy5iaXovJytpIGZvciBpIGluIGltYWdlX2xpc3RdCnByaW50KGltYWdlX2xpc3QpCmZvciB1cmwgaW4gaW1hZ2VfbGlzdDoKICAgIHNzNjRfbGlzdCA9IHB5emJhci5kZWNvZGUoSW1hZ2Uub3Blbihpby5CeXRlc0lPKHJlcXVlc3RzLmdldCh1cmwsaGVhZGVycyA9IGhlYWRlcnMpLmNvbnRlbnQpKS5jb252ZXJ0KCdSR0JBJyksIHN5bWJvbHM9W3B5emJhci5aQmFyU3ltYm9sLlFSQ09ERV0pCiAgICBzczY0ID0gc3M2NF9saXN0WzBdLmRhdGEuZGVjb2RlKCd1dGYtOCcpWzU6XQogICAgc3MgPSBiYXNlNjQuYjY0ZGVjb2RlKHNzNjQpLmRlY29kZSgndXRmLTgnKQogICAgaW5mbyA9IFtpLnNwbGl0KCdAJykgZm9yIGkgaW4gc3Muc3BsaXQoIjoiKV0KICAgIHNzaW5mbyA9ICcnJyAgICAgICAgICAgICAgICAgICAgICAgICJzZXJ2ZXIiIDogIicnJytpbmZvWzFdWzFdKycnJyIsCiAgICAgICAgICAgICAgICAgICAgICAgICJzZXJ2ZXJfcG9ydCIgOiAnJycraW5mb1syXVswXSsnJycsCiAgICAgICAgICAgICAgICAgICAgICAgICJwYXNzd29yZCIgOiAiJycnK2luZm9bMV1bMF0rJycnIiwKICAgICAgICAgICAgICAgICAgICAgICAgIm1ldGhvZCIgOiAiJycnK2luZm9bMF1bMF0rJycnIiwnJycKICAgIHdpdGggb3BlbignZ3VpLWNvbmZpZy5qc29uJywndycpIGFzIGY6CiAgICAgICAgZi53cml0ZShzdHIxICsgc3NpbmZvICsgc3RyMikKICAgIHByaW50KHN0cjEgKyBzc2luZm8gKyBzdHIyKQogICAgYnJlYWsKIyBkb3dubG9hZDogbGFuem91cyBpNTl3azhqCiMgc3RhcnQgU2hhZG93c29ja3NSLWRvdG5ldDIuMC5leGUgcHJvY2VzcyAKb3Muc3RhcnRmaWxlKCdTaGFkb3dzb2Nrc1ItZG90bmV0Mi4wLmV4ZScpIA=='
-exec(base64.b64decode(sss).decode('utf-8'))
+import os
+
+headers = {
+'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/18.17763',
+}
+
+str1 = '''{
+	"configs" : [
+		{
+			"remarks" : "",
+			"id" : "CC5D18FE26581A603EEB406C7D454DCF",
+'''
+str2 = '''"server_udp_port" : 0,
+			"protocol" : "origin",
+			"protocolparam" : "",
+			"obfs" : "plain",
+			"obfsparam" : "",
+			"remarks_base64" : "",
+			"group" : "",
+			"enable" : true,
+			"udp_over_tcp" : false
+		}
+	],
+	"index" : 0,
+	"random" : false,
+	"sysProxyMode" : 2,
+	"shareOverLan" : false,
+	"localPort" : 1080,
+	"localAuthPassword" : "GBvf8VOc4QqqvgMXKZvv",
+	"dnsServer" : "",
+	"reconnectTimes" : 2,
+	"randomAlgorithm" : 3,
+	"randomInGroup" : false,
+	"TTL" : 0,
+	"connectTimeout" : 5,
+	"proxyRuleMode" : 2,
+	"proxyEnable" : false,
+	"pacDirectGoProxy" : false,
+	"proxyType" : 0,
+	"proxyHost" : "",
+	"proxyPort" : 0,
+	"proxyAuthUser" : "",
+	"proxyAuthPass" : "",
+	"proxyUserAgent" : "",
+	"authUser" : "",
+	"authPass" : "",
+	"autoBan" : false,
+	"sameHostForSameTarget" : false,
+	"keepVisitTime" : 180,
+	"isHideTips" : true,
+	"nodeFeedAutoUpdate" : true,
+	"serverSubscribes" : [
+
+	],
+	"token" : {
+
+	},
+	"portMap" : {
+
+	}
+}'''
+
+ht = requests.head('https://ssx.re/',headers = headers,verify = False)
+r = requests.get(ht.headers['location'],headers = headers,verify = False)
+pattern = re.compile(r'img/portfolio/ss[^r].*?\.png')
+image_list = pattern.findall(r.content.decode('utf-8'))
+image_list = [ht.headers['location'] + '/' +i for i in image_list]
+print(image_list)
+for url in image_list:
+    ss64_list = pyzbar.decode(Image.open(io.BytesIO(requests.get(url,headers = headers,verify = False).content)).convert('RGBA'), symbols=[pyzbar.ZBarSymbol.QRCODE])
+    ss64 = ss64_list[0].data.decode('utf-8')[5:]
+    ss = base64.b64decode(ss64).decode('utf-8')
+    info = [i.split('@') for i in ss.split(":")]
+    ssinfo = '''                     "server" : "'''+info[1][1]+'''",
+            "server_port" : '''+info[2][0]+''',
+            "password" : "'''+info[1][0]+'''",
+            "method" : "'''+info[0][0]+'''",'''
+    with open('gui-config.json','w+') as f:
+        f.write(str1 + ssinfo + str2)
+    print(str1 + ssinfo + str2)
+    break
+# download: lanzous i59wk8j
+# start ShadowsocksR-dotnet2.0.exe process 
+os.startfile('ShadowsocksR-dotnet2.0.exe') 
