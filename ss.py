@@ -42,7 +42,7 @@ def getssall():
     arr = []
     for i in tbody:
         objtd = i.select('td')
-        mp = {"server":objtd[1].get_text(),"server_port":int(objtd[2].get_text()),"password":objtd[3].get_text(),"method":objtd[4].get_text(),"remarks" : ""}
+        mp = {"server":objtd[1].get_text(),"server_port":int(objtd[2].get_text()),"password":objtd[4].get_text(),"method":objtd[3].get_text(),"remarks" : ""}
         arr.append(mp)
     return {"configs" :arr,"index" : l,"global" : False,"enabled" : True,"shareOverLan" : False,"isDefault" : False,"localPort" : 1080}
 
