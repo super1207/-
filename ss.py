@@ -29,7 +29,7 @@ def disproxy():
         winreg.DeleteValue(key,'AutoConfigURL')
         winreg.CloseKey(key)
         internet_set_option = ctypes.windll.Wininet.InternetSetOptionW
-        internet_set_option(0,3900,0,0)
+        internet_set_option(0,39,0,0)
         internet_set_option(0,37,0,0)
     except:
         pass
