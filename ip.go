@@ -15,6 +15,7 @@ import (
 
 var iptable []string
 var mutex sync.Mutex
+var lastip string = ""
 
 //判断代理是否可用，，超时10秒，参数proxy_addr格式：`http://180.97.33.144:81`
 func VerifIp(proxy_addr string) bool {
@@ -78,7 +79,9 @@ func VIP(ipSlice1 []string) []string {
 		bool
 	}
 	ipSlice := Random(ipSlice1)
-	ipSlice = ipSlice[:300]
+	if len(ipSlice) > 300 {
+		ipSlice = ipSlice[:300]
+	}
 	num := 0
 	canuseNum := 0
 	resultChannel := make(chan result)
@@ -101,6 +104,98 @@ func VIP(ipSlice1 []string) []string {
 	return ret
 }
 
+//使用`http`代理访问一个网页
+func GetHttp(httpUrl, proxy_addr string) []byte {
+	proxy, err := url.Parse(proxy_addr)
+	netTransport := &http.Transport{
+		Proxy:                 http.ProxyURL(proxy),
+		MaxIdleConnsPerHost:   10,
+		ResponseHeaderTimeout: time.Second * time.Duration(10),
+	}
+	httpClient := &http.Client{
+		Timeout:   time.Second * 10,
+		Transport: netTransport,
+	}
+	res, err := httpClient.Get(httpUrl)
+	if err != nil {
+		//fmt.Println(err.Error())
+		return []byte{}
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		//fmt.Println("err statusCode:", res.StatusCode)
+		return []byte{}
+	}
+	c, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		//fmt.Println(err.Error())
+		return []byte{}
+	}
+	return c
+}
+
+//并发的访问一个网页
+func GetHttpSelect(httpUrl string) []byte {
+	type chs struct {
+		ret []byte
+		ip  string
+	}
+
+	//获取上一次访问的ip
+	mutex.Lock()
+	ip := lastip
+	mutex.Unlock()
+
+	if ip != "" {
+		ch := make(chan chs)
+		go func() {
+			ret := GetHttp(httpUrl, ip)
+			ch <- chs{ret, ip}
+		}()
+		select {
+		case result := <-ch:
+
+			if len(result.ret) == 0 {
+				mutex.Lock()
+				lastip = ""
+				mutex.Unlock()
+			}
+			return result.ret
+		case <-time.After(10 * time.Second):
+			mutex.Lock()
+			lastip = ""
+			mutex.Unlock()
+			return []byte{}
+		}
+	}
+
+	//并发访问
+	ch := make(chan chs)
+	for i := 0; i < 15; i++ {
+		go func() {
+			mutex.Lock()
+			i := rand.Intn(len(iptable))
+			s := iptable[i]
+			mutex.Unlock()
+			ret := GetHttp(httpUrl, s)
+			if len(ret) != 0 {
+				ch <- chs{ret, s}
+			}
+		}()
+	}
+	select {
+	case result := <-ch:
+		if len(result.ret) != 0 {
+			mutex.Lock()
+			lastip = result.ip
+			mutex.Unlock()
+		}
+		return result.ret
+	case <-time.After(10 * time.Second):
+		return []byte{}
+	}
+}
+
 //程序入口
 func main() {
 	//初始化随机数种子
@@ -109,16 +204,20 @@ func main() {
 	fmt.Println("------Made by super1207------")
 	fmt.Println("正在获取ip...")
 	iptable = VIP(GetIp())
+	if len(iptable) == 0 {
+		log.Fatal("没有获取到任何ip")
+	}
 	fmt.Println("当前IP数量：", len(iptable))
-
 	//每分钟刷新一次ip
 	go func() {
-		for i := 0; i != 1; i = 0 {
+		for {
 			time.Sleep(60 * time.Second)
 			iptable_t := VIP(GetIp())
-			fmt.Println("当前IP数量：", len(iptable_t))
 			mutex.Lock()
-			iptable = iptable_t
+			if len(iptable_t) != 0 {
+				iptable = iptable_t
+			}
+			fmt.Println("当前IP数量：", len(iptable))
 			mutex.Unlock()
 
 		}
@@ -144,9 +243,42 @@ func main() {
 		w.Write([]byte(data))
 	})
 
+	//使用http代理访问一个网页
+	http.HandleFunc("/get_url", func(w http.ResponseWriter, r *http.Request) {
+		keys, ok := r.URL.Query()["url"]
+		if !ok || len(keys) < 1 {
+			log.Println("Url Param 'key' is missing")
+			w.Write([]byte("no url input"))
+		} else {
+			mutex.Lock()
+			ip := lastip
+			mutex.Unlock()
+			log.Printf("使用ip:'%s'访问网页：'%s'", ip, keys[0])
+			cont := []byte{}
+			for i := 0; i < 3; i++ {
+				cont = GetHttpSelect(keys[0])
+				if len(cont) != 0 {
+					break
+				}
+			}
+			w.Header().Set("Content-Type", "text/html; charset=gbk")
+			w.Write(cont)
+		}
+	})
+
+	//切换ip
+	http.HandleFunc("/change_ip", func(w http.ResponseWriter, r *http.Request) {
+		mutex.Lock()
+		lastip = ""
+		mutex.Unlock()
+		w.Write([]byte(""))
+	})
+
 	//启动服务器
 	fmt.Println("启动http seriver...")
 	fmt.Println("访问地址：http://localhost:5000/get_ip")
 	fmt.Println("访问地址：http://localhost:5000/get_all")
+	fmt.Println("访问地址：http://localhost:5000/change_ip")
+	fmt.Println("访问地址：http://localhost:5000/get_url?url=http://vip.stock.finance.sina.com.cn/corp/go.php/vCI_StockHolder/stockid/601778/displaytype/30.phtml")
 	log.Fatal(http.ListenAndServe(":5000", nil))
 }
