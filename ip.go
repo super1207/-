@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"sync"
 	"time"
@@ -54,7 +57,10 @@ func GetIp() (ipSlice []string) {
 	if resp.StatusCode != 200 {
 		return
 	}
-	c, _ := ioutil.ReadAll(resp.Body)
+	c, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
 	comp := regexp.MustCompile("(\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+)")
 	submatchs := comp.FindAllStringSubmatch(string(c), -1)
 	for _, submatch := range submatchs {
@@ -105,7 +111,7 @@ func VIP(ipSlice1 []string) []string {
 }
 
 //使用`http`代理访问一个网页
-func GetHttp(httpUrl, proxy_addr string) []byte {
+func GetHttp(httpUrl, proxy_addr string) ([]byte, error) {
 	proxy, err := url.Parse(proxy_addr)
 	netTransport := &http.Transport{
 		Proxy:                 http.ProxyURL(proxy),
@@ -119,26 +125,30 @@ func GetHttp(httpUrl, proxy_addr string) []byte {
 	res, err := httpClient.Get(httpUrl)
 	if err != nil {
 		//fmt.Println(err.Error())
-		return []byte{}
+		return []byte{}, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
 		//fmt.Println("err statusCode:", res.StatusCode)
-		return []byte{}
+		return []byte{}, errors.New("retcode:" + string(res.StatusCode))
 	}
 	c, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		//fmt.Println(err.Error())
-		return []byte{}
+		return []byte{}, err
 	}
-	return c
+	if len(c) == 0 {
+		return []byte{}, errors.New("not any response")
+	}
+	return c, nil
 }
 
 //并发的访问一个网页
-func GetHttpSelect(httpUrl string) []byte {
+func GetHttpSelect(httpUrl string) ([]byte, error) {
 	type chs struct {
 		ret []byte
 		ip  string
+		err error
 	}
 
 	//获取上一次访问的ip
@@ -149,23 +159,26 @@ func GetHttpSelect(httpUrl string) []byte {
 	if ip != "" {
 		ch := make(chan chs)
 		go func() {
-			ret := GetHttp(httpUrl, ip)
-			ch <- chs{ret, ip}
+			ret, err := GetHttp(httpUrl, ip)
+			if err == nil {
+				ch <- chs{ret, ip, nil}
+			}
+
 		}()
 		select {
 		case result := <-ch:
-
-			if len(result.ret) == 0 {
+			if result.err != nil {
 				mutex.Lock()
 				lastip = ""
 				mutex.Unlock()
+				return []byte{}, result.err
 			}
-			return result.ret
+			return result.ret, nil
 		case <-time.After(10 * time.Second):
 			mutex.Lock()
 			lastip = ""
 			mutex.Unlock()
-			return []byte{}
+			return []byte{}, errors.New("time out err")
 		}
 	}
 
@@ -177,23 +190,49 @@ func GetHttpSelect(httpUrl string) []byte {
 			i := rand.Intn(len(iptable))
 			s := iptable[i]
 			mutex.Unlock()
-			ret := GetHttp(httpUrl, s)
-			if len(ret) != 0 {
-				ch <- chs{ret, s}
+			ret, err := GetHttp(httpUrl, s)
+			if err == nil {
+				ch <- chs{ret, s, nil}
 			}
 		}()
 	}
 	select {
 	case result := <-ch:
-		if len(result.ret) != 0 {
+		if result.err == nil {
 			mutex.Lock()
 			lastip = result.ip
 			mutex.Unlock()
 		}
-		return result.ret
+		return result.ret, nil
 	case <-time.After(10 * time.Second):
-		return []byte{}
+		return []byte{}, errors.New("time out err")
 	}
+}
+
+//从本地获取端口号
+func GetPort() (string, error) {
+
+	is_exist := func(path string) bool {
+		_, err := os.Lstat(path)
+		return !os.IsNotExist(err)
+	}("config.txt")
+	if !is_exist {
+		ioutil.WriteFile("config.txt", []byte(`{"port":"5000"}`), 0777)
+	}
+
+	data, err := ioutil.ReadFile("config.txt")
+	if err != nil {
+		return "", err
+	}
+	type ConfigType struct {
+		Port string
+	}
+	var s ConfigType
+	err = json.Unmarshal([]byte(data), &s)
+	if err != nil {
+		return "", err
+	}
+	return s.Port, nil
 }
 
 //程序入口
@@ -255,11 +294,15 @@ func main() {
 			mutex.Unlock()
 			log.Printf("使用ip:'%s'访问网页：'%s'", ip, keys[0])
 			cont := []byte{}
+			var err error = nil
 			for i := 0; i < 3; i++ {
-				cont = GetHttpSelect(keys[0])
-				if len(cont) != 0 {
+				cont, err = GetHttpSelect(keys[0])
+				if err == nil {
 					break
 				}
+			}
+			if err != nil {
+				log.Printf("使用ip:'%s'访问网页：'%s'失败:'%s'", ip, keys[0], err.Error())
 			}
 			w.Header().Set("Content-Type", "text/html; charset=gbk")
 			w.Write(cont)
@@ -271,14 +314,39 @@ func main() {
 		mutex.Lock()
 		lastip = ""
 		mutex.Unlock()
-		w.Write([]byte(""))
+		w.Write([]byte("OK"))
 	})
+
+	//从本地文件获得端口号
+	port, err := GetPort()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	helpFun := func() {
+		fmt.Printf("访问地址：http://localhost:%s/get_ip\n", port)
+		fmt.Printf("访问地址：http://localhost:%s/get_all\n", port)
+		fmt.Printf("访问地址：http://localhost:%s/change_ip\n", port)
+		fmt.Printf("访问地址：http://localhost:%s/get_url?url=http://vip.stock.finance.sina.com.cn/corp/go.php/vCI_StockHolder/stockid/601778/displaytype/30.phtml\n", port)
+	}
+
+	//处理控制台输入
+	go func() {
+		for {
+			in := bufio.NewReader(os.Stdin)
+			str, _, err := in.ReadLine()
+			if err != nil {
+				fmt.Printf(err.Error())
+				continue
+			}
+			if string(str) == "help" {
+				helpFun()
+			}
+		}
+	}()
 
 	//启动服务器
 	fmt.Println("启动http seriver...")
-	fmt.Println("访问地址：http://localhost:5000/get_ip")
-	fmt.Println("访问地址：http://localhost:5000/get_all")
-	fmt.Println("访问地址：http://localhost:5000/change_ip")
-	fmt.Println("访问地址：http://localhost:5000/get_url?url=http://vip.stock.finance.sina.com.cn/corp/go.php/vCI_StockHolder/stockid/601778/displaytype/30.phtml")
-	log.Fatal(http.ListenAndServe(":5000", nil))
+	helpFun()
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
